@@ -285,7 +285,7 @@ def _wait_for_transcode(
     return {}
 
 
-_UPLOAD_WORKERS = 4
+_UPLOAD_WORKERS = 8
 
 
 def upload_all_chapters(

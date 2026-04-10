@@ -197,6 +197,11 @@ def download_audiobook(
 
         try:
             resp = session.get(part_url, headers=headers, timeout=120, stream=True)
+            # If resume range is invalid, restart from scratch
+            if resp.status_code == 416:
+                part_tmp.unlink(missing_ok=True)
+                already = 0
+                resp = session.get(part_url, timeout=120, stream=True)
             resp.raise_for_status()
 
             total = int(resp.headers.get("content-length", 0)) + already

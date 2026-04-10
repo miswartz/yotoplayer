@@ -175,15 +175,33 @@ def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons)
         # 13a. Generate chapter icons (opt-in)
         icon_paths = None
         if icons:
+            if len(chapter_titles) > 20:
+                ok = input(
+                    f"\nGenerate icons for {len(chapter_titles)} chapters? "
+                    f"(~${len(chapter_titles) * 0.023:.2f}) [y/N]: "
+                ).strip().lower()
+                if ok != "y":
+                    print("Skipping icon generation.")
+                    icons = False
+        if icons:
             book_description = book_meta.get("description", "")
             icon_paths = generate_chapter_icons(
                 chapter_titles, book_title, book_description, output_dir,
             )
 
-        upload_to_yoto(
-            final_files, chapter_titles, book_title, authors,
-            narrators=narrators, cover_path=cover_path, icon_paths=icon_paths,
-        )
+        if len(final_files) > 100:
+            ok = input(
+                f"\nUpload {len(final_files)} chapters to Yoto? [y/N]: "
+            ).strip().lower()
+            if ok != "y":
+                print("Skipping Yoto upload.")
+                no_upload = True
+
+        if not no_upload:
+            upload_to_yoto(
+                final_files, chapter_titles, book_title, authors,
+                narrators=narrators, cover_path=cover_path, icon_paths=icon_paths,
+            )
     else:
         print("\nSkipping Yoto upload (--no-upload).")
 
