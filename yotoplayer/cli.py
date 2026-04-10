@@ -66,7 +66,13 @@ def yoto_auth():
     default=False,
     help="Skip uploading to Yoto.",
 )
-def get_audiobook(query, output, keep_intermediate, normalize, no_upload):
+@click.option(
+    "--icons",
+    is_flag=True,
+    default=False,
+    help="Generate AI pixel art chapter icons (requires OPENAI_API_KEY and RETRO_DIFFUSION_API_KEY).",
+)
+def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons):
     """Search for an audiobook and download + process it.
 
     QUERY is the search term (e.g., "dinosaurs before dark").
@@ -166,11 +172,13 @@ def get_audiobook(query, output, keep_intermediate, normalize, no_upload):
             for i, ch in enumerate(chapter_list)
         ]
 
-        # 13a. Generate chapter icons
-        book_description = book_meta.get("description", "")
-        icon_paths = generate_chapter_icons(
-            chapter_titles, book_title, book_description, output_dir,
-        )
+        # 13a. Generate chapter icons (opt-in)
+        icon_paths = None
+        if icons:
+            book_description = book_meta.get("description", "")
+            icon_paths = generate_chapter_icons(
+                chapter_titles, book_title, book_description, output_dir,
+            )
 
         upload_to_yoto(
             final_files, chapter_titles, book_title, authors,
