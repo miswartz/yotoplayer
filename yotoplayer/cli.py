@@ -14,6 +14,8 @@ from .process import (
     normalize_volume,
 )
 from .rename import rename_chapters
+from .yoto import device_code_auth, is_yoto_authenticated, upload_to_yoto
+from .icons import generate_chapter_icons
 
 
 @click.group()
@@ -28,6 +30,13 @@ def auth():
     client = setup_auth()
     print()
     print_libraries(client)
+
+
+@main.command(name="yoto-auth")
+def yoto_auth():
+    """Set up Yoto account authentication (OAuth2 device code flow)."""
+    device_code_auth()
+    print("\nYoto authentication complete. You can now upload playlists.")
 
 
 @main.command(name="get")
@@ -51,7 +60,13 @@ def auth():
     default=False,
     help="Normalize volume across chapters (EBU R128, -16 LUFS).",
 )
-def get_audiobook(query, output, keep_intermediate, normalize):
+@click.option(
+    "--no-upload",
+    is_flag=True,
+    default=False,
+    help="Skip uploading to Yoto.",
+)
+def get_audiobook(query, output, keep_intermediate, normalize, no_upload):
     """Search for an audiobook and download + process it.
 
     QUERY is the search term (e.g., "dinosaurs before dark").
@@ -143,7 +158,28 @@ def get_audiobook(query, output, keep_intermediate, normalize):
     for f in final_files:
         print(f"  {f.name}")
 
-    # 13. Clean up
+    # 13. Upload to Yoto
+    if not no_upload:
+        narrators = book_meta.get("narrators", [])
+        chapter_titles = [
+            ch.get("title", f"Chapter {i+1}")
+            for i, ch in enumerate(chapter_list)
+        ]
+
+        # 13a. Generate chapter icons
+        book_description = book_meta.get("description", "")
+        icon_paths = generate_chapter_icons(
+            chapter_titles, book_title, book_description, output_dir,
+        )
+
+        upload_to_yoto(
+            final_files, chapter_titles, book_title, authors,
+            narrators=narrators, cover_path=cover_path, icon_paths=icon_paths,
+        )
+    else:
+        print("\nSkipping Yoto upload (--no-upload).")
+
+    # 14. Clean up
     if not keep_intermediate:
         import shutil
 
