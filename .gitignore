@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# Audio files
+*.mp3
+*.m4b
+*.m4a
+*.part
+
+# Debug/test artifacts
+downloads/
+test_download/
+*.har
+*.saz
+*.gz
+
+# Sensitive data
+*.json
+!pyproject.toml

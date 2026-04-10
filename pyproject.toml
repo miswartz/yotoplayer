@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yotoplayer"
+version = "0.1.0"
+description = "CLI tool to search, download, and process Libby audiobooks"
+requires-python = ">=3.10"
+dependencies = [
+    "odmpy @ git+https://github.com/ping/odmpy.git",
+    "requests>=2.28.0",
+    "click>=8.0",
+    "mutagen>=1.46.0",
+    "playwright>=1.40.0",
+    "tqdm>=4.60.0",
+]
+
+[project.scripts]
+yotoplayer = "yotoplayer.cli:main"
