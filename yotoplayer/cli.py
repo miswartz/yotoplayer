@@ -45,7 +45,13 @@ def auth():
     default=False,
     help="Keep intermediate files (merged audio, parts, etc.)",
 )
-def get_audiobook(query, output, keep_intermediate):
+@click.option(
+    "--normalize",
+    is_flag=True,
+    default=False,
+    help="Normalize volume across chapters (EBU R128, -16 LUFS).",
+)
+def get_audiobook(query, output, keep_intermediate, normalize):
     """Search for an audiobook and download + process it.
 
     QUERY is the search term (e.g., "dinosaurs before dark").
@@ -124,9 +130,12 @@ def get_audiobook(query, output, keep_intermediate):
     print("\nWriting ID3 tags...")
     write_id3_tags(chapter_files, chapter_list, book_title, authors, cover_path)
 
-    # 11. Normalize volume
-    print()
-    normalize_volume(output_dir)
+    # 11. Normalize volume (opt-in)
+    if normalize:
+        print()
+        normalize_volume(output_dir)
+    else:
+        print("\nSkipping volume normalization (use --normalize to enable).")
 
     # 12. Rename files
     print("\nRenaming files...")
