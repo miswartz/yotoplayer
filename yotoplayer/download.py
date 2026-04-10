@@ -212,7 +212,7 @@ def download_audiobook(
                         f.write(chunk)
                         pbar.update(len(chunk))
 
-            part_tmp.rename(part_filename)
+            part_tmp.replace(part_filename)
         except requests.RequestException as e:
             print(f"  Error downloading part {part_number}: {e}", file=sys.stderr)
             sys.exit(1)

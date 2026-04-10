@@ -3,12 +3,11 @@
 Step 1: GPT-4o-mini picks a single iconic object for the chapter.
 Step 2: Retro Diffusion generates a native 16x16 pixel art sprite.
 
-Requires OPENAI_API_KEY and RETRO_DIFFUSION_API_KEY environment variables.
+Requires openai_api_key and retro_diffusion_api_key in
+~/.yotoplayer/config.json (or OPENAI_API_KEY / RETRO_DIFFUSION_API_KEY env vars).
 """
 
 import base64
-import io
-import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -16,6 +15,8 @@ from typing import List, Optional, Tuple
 
 import requests
 from tqdm import tqdm
+
+from yotoplayer import config
 
 _ICON_SIZE = 16
 _ICON_WORKERS = 2
@@ -40,8 +41,8 @@ Rules:
 
 
 def _get_openai_client():
-    """Return an OpenAI client if OPENAI_API_KEY is set, else None."""
-    api_key = os.environ.get("OPENAI_API_KEY")
+    """Return an OpenAI client if openai_api_key is configured, else None."""
+    api_key = config.get("openai_api_key", "OPENAI_API_KEY")
     if not api_key:
         return None
     try:
@@ -178,15 +179,17 @@ def generate_chapter_icons(
     openai_client = _get_openai_client()
     if openai_client is None:
         print(
-            "\nSkipping icon generation (set OPENAI_API_KEY to enable).",
+            "\nSkipping icon generation (set openai_api_key in "
+            "~/.yotoplayer/config.json or OPENAI_API_KEY env var).",
             file=sys.stderr,
         )
         return [None] * len(chapter_titles)
 
-    rd_api_key = os.environ.get("RETRO_DIFFUSION_API_KEY")
+    rd_api_key = config.get("retro_diffusion_api_key", "RETRO_DIFFUSION_API_KEY")
     if not rd_api_key:
         print(
-            "\nSkipping icon generation (set RETRO_DIFFUSION_API_KEY to enable).",
+            "\nSkipping icon generation (set retro_diffusion_api_key in "
+            "~/.yotoplayer/config.json or RETRO_DIFFUSION_API_KEY env var).",
             file=sys.stderr,
         )
         return [None] * len(chapter_titles)
