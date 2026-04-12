@@ -171,6 +171,91 @@ def write_id3_tags(
         tags.save(str(fpath))
 
 
+def get_audio_duration(file_path: Path) -> float:
+    """Return the duration (seconds) of an audio file using ffprobe / ffmpeg."""
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        cmd = [
+            ffprobe, "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            str(file_path),
+        ]
+    else:
+        # Fall back to ffmpeg stderr output
+        ffmpeg = check_ffmpeg()
+        cmd = [ffmpeg, "-i", str(file_path), "-f", "null", "-"]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if ffprobe:
+        try:
+            return float(result.stdout.strip())
+        except ValueError:
+            pass
+
+    # Parse duration from ffmpeg/ffprobe stderr as fallback
+    import re
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+)\.(\d+)", result.stderr)
+    if m:
+        h, mi, s, cs = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+        return h * 3600 + mi * 60 + s + cs / 100.0
+
+    raise RuntimeError(f"Could not determine duration of {file_path}")
+
+
+def merge_chapter_pair(file1: Path, file2: Path, output: Path) -> None:
+    """Concatenate two MP3 chapter files into *output* using ffmpeg concat."""
+    ffmpeg = check_ffmpeg()
+    concat_list = output.parent / f"_concat_{output.stem}.txt"
+    try:
+        with open(concat_list, "w", encoding="utf-8") as f:
+            f.write(f"file '{str(file1.resolve()).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'\n")
+            f.write(f"file '{str(file2.resolve()).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'\n")
+        cmd = [
+            ffmpeg, "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_list), "-c", "copy", str(output),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to merge chapters: {result.stderr}")
+    finally:
+        concat_list.unlink(missing_ok=True)
+
+
+def split_chapter_file(
+    file_path: Path,
+    num_parts: int,
+    output_dir: Path,
+) -> List[Path]:
+    """Split an MP3 file into *num_parts* roughly equal pieces (re-encodes)."""
+    ffmpeg = check_ffmpeg()
+    duration = get_audio_duration(file_path)
+    part_duration = duration / num_parts
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    parts: List[Path] = []
+
+    for i in range(num_parts):
+        start = i * part_duration
+        end = min((i + 1) * part_duration, duration)
+        out_path = output_dir / f"{file_path.stem}_pt{i + 1}.mp3"
+        cmd = [
+            ffmpeg, "-y", "-i", str(file_path),
+            "-ss", str(start), "-to", str(end),
+            "-acodec", "libmp3lame", "-q:a", "2",
+            str(out_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to split {file_path.name} part {i + 1}: {result.stderr}"
+            )
+        parts.append(out_path)
+
+    return parts
+
+
 def normalize_volume(chapter_dir: Path) -> None:
     """Normalize volume of all MP3s in a directory.
 
