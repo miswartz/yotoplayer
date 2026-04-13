@@ -91,6 +91,15 @@ def ensure_borrowed(
         raise
 
 
+def return_loan(client: LibbyClient, loan: Dict) -> None:
+    """Return a borrowed title on Libby."""
+    try:
+        client.return_loan(loan)
+        print("Returned loan on Libby.")
+    except Exception as e:
+        print(f"Warning: Could not return loan: {e}", file=sys.stderr)
+
+
 def download_audiobook(
     client: LibbyClient, loan: Dict, output_dir: Path
 ) -> Tuple[List[Path], List[Dict]]:

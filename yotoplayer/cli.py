@@ -6,17 +6,18 @@ import click
 
 from .auth import get_client, setup_auth, print_libraries, get_library_keys
 from .search import search_audiobooks, display_results
-from .download import ensure_borrowed, download_audiobook
+from .download import ensure_borrowed, download_audiobook, return_loan
 from .process import (
     merge_parts,
     split_chapters,
     write_id3_tags,
     normalize_volume,
 )
-from .rename import rename_chapters
+from .rename import rename_chapters, _is_meaningful_title
 from .yoto import device_code_auth, is_yoto_authenticated, upload_to_yoto
 from .icons import generate_chapter_icons
 from .playlist import enforce_playlist_limits
+from .covers import generate_cover_sheets
 
 
 @click.group()
@@ -124,6 +125,9 @@ def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons)
     print()
     part_files, chapters = download_audiobook(client, loan, work_dir)
 
+    # Return the book on Libby now that all parts are downloaded
+    return_loan(client, loan)
+
     if not chapters:
         print("Warning: No chapter metadata found. The file will not be split.")
 
@@ -208,7 +212,12 @@ def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons)
 
             # Generate chapter icons (opt-in)
             icon_paths = None
-            if icons:
+            has_meaningful = any(
+                _is_meaningful_title(t, book_title) for t in chapter_titles
+            )
+            if icons and not has_meaningful:
+                print("Skipping icon generation (no meaningful chapter names).")
+            elif icons:
                 if len(chapter_titles) > 20:
                     ok = input(
                         f"\nGenerate icons for {len(chapter_titles)} chapters of "
@@ -260,6 +269,56 @@ def _safe_dirname(name: str) -> str:
 
     name = re.sub(r'[<>:"/\\|?*]', "", name)
     return name.strip(". ") or "Untitled"
+
+
+@main.command(name="print-covers")
+@click.option(
+    "--library",
+    "-l",
+    type=click.Path(),
+    default=None,
+    help="Library directory (default: ~/YotoPlayer)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    default=None,
+    help="Output PDF path (default: ~/YotoPlayer/covers.pdf)",
+)
+@click.option(
+    "--fit",
+    is_flag=True,
+    default=False,
+    help="Fit full cover with blurred background (no clipping).",
+)
+@click.option(
+    "--ai-covers",
+    is_flag=True,
+    default=False,
+    help="AI-generated covers via GPT-4o Vision + DALL-E 3 (~$0.08/cover).",
+)
+@click.option(
+    "--outpaint",
+    is_flag=True,
+    default=False,
+    help="AI extends original cover art to fill card (Stability AI, ~$0.04/cover).",
+)
+def print_covers(library, output, fit, ai_covers, outpaint):
+    """Generate printable NFC card cover sheets from local books."""
+    library_dir = Path(library) if library else Path.home() / "YotoPlayer"
+    output_path = Path(output) if output else library_dir / "covers.pdf"
+
+    if ai_covers:
+        mode = "ai"
+    elif outpaint:
+        mode = "outpaint"
+    elif fit:
+        mode = "fit"
+    else:
+        mode = "crop"
+
+    generate_cover_sheets(library_dir, output_path, mode=mode)
 
 
 if __name__ == "__main__":

@@ -219,7 +219,13 @@ def _partition_playlists(
     chapters: List[Dict],
     book_title: str,
 ) -> List[Dict]:
-    """Greedily partition chapters into playlists, each ≤ 500 MB / 100 tracks."""
+    """Partition chapters into roughly equal-sized playlists, each ≤ 500 MB / 100 tracks."""
+    total_size = sum(f.stat().st_size for f in files)
+    num_playlists_by_size = math.ceil(total_size / MAX_BYTES_PER_PLAYLIST)
+    num_playlists_by_tracks = math.ceil(len(files) / MAX_TRACKS_PER_PLAYLIST)
+    num_playlists = max(num_playlists_by_size, num_playlists_by_tracks, 1)
+    target_size = total_size / num_playlists
+
     playlists: List[Dict] = []
     cur_files: List[Path] = []
     cur_chapters: List[Dict] = []
@@ -228,10 +234,14 @@ def _partition_playlists(
     for fpath, ch in zip(files, chapters):
         fsize = fpath.stat().st_size
 
-        would_exceed_size = cur_size + fsize > MAX_BYTES_PER_PLAYLIST
-        would_exceed_tracks = len(cur_files) >= MAX_TRACKS_PER_PLAYLIST
+        # Start a new playlist when we've reached the target size or track
+        # limit, but only if we haven't already filled all expected playlists
+        # (the last one gets whatever remains).
+        playlists_remaining = num_playlists - len(playlists)
+        at_target = cur_size + fsize > target_size and playlists_remaining > 1
+        at_track_limit = len(cur_files) >= MAX_TRACKS_PER_PLAYLIST
 
-        if cur_files and (would_exceed_size or would_exceed_tracks):
+        if cur_files and (at_target or at_track_limit):
             playlists.append({"files": cur_files, "chapters": cur_chapters})
             cur_files = []
             cur_chapters = []
