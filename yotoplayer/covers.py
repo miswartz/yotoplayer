@@ -22,10 +22,11 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 CARD_W_MM = 53.98
 CARD_H_MM = 85.60
 
-BLEED_MM = 2.0  # overlap on each edge for trimming tolerance
+BLEED_MM = 1.0  # overlap on each edge for trimming tolerance
+BORDER_MM = 1.0  # white border around each card (cutting guide)
 
-CARD_BLEED_W_MM = CARD_W_MM + 2 * BLEED_MM   # 57.98
-CARD_BLEED_H_MM = CARD_H_MM + 2 * BLEED_MM   # 89.60
+CARD_BLEED_W_MM = CARD_W_MM + 2 * BLEED_MM   # 55.98
+CARD_BLEED_H_MM = CARD_H_MM + 2 * BLEED_MM   # 87.60
 
 # US Letter
 SHEET_W_MM = 215.9
@@ -43,6 +44,9 @@ def _mm_to_px(mm: float) -> int:
 # Pre-computed pixel sizes
 CARD_PX_W = _mm_to_px(CARD_BLEED_W_MM)
 CARD_PX_H = _mm_to_px(CARD_BLEED_H_MM)
+BORDER_PX = _mm_to_px(BORDER_MM)
+CELL_PX_W = CARD_PX_W + 2 * BORDER_PX  # card + white border
+CELL_PX_H = CARD_PX_H + 2 * BORDER_PX
 SHEET_PX_W = _mm_to_px(SHEET_W_MM)
 SHEET_PX_H = _mm_to_px(SHEET_H_MM)
 
@@ -361,7 +365,7 @@ def _stamp_part_label(card: Image.Image, part_name: str) -> Image.Image:
     text_h = bbox[3] - bbox[1]
 
     padding = font_size // 2
-    # Keep label clear of the bleed/trim zone (2mm ≈ 24px @ 300 DPI) + safe margin
+    # Keep label clear of the bleed/trim zone (1mm ≈ 12px @ 300 DPI) + safe margin
     bleed_px = round(BLEED_MM / 25.4 * DPI)
     margin = bleed_px + font_size // 2
 
@@ -563,13 +567,13 @@ def _layout_cards_on_sheets(
 
     Returns a list of sheet images (one per page).
     """
-    cols = SHEET_PX_W // CARD_PX_W
-    rows = SHEET_PX_H // CARD_PX_H
+    cols = SHEET_PX_W // CELL_PX_W
+    rows = SHEET_PX_H // CELL_PX_H
     per_page = cols * rows
 
     # Centre the grid on the sheet
-    grid_w = cols * CARD_PX_W
-    grid_h = rows * CARD_PX_H
+    grid_w = cols * CELL_PX_W
+    grid_h = rows * CELL_PX_H
     margin_x = (SHEET_PX_W - grid_w) // 2
     margin_y = (SHEET_PX_H - grid_h) // 2
 
@@ -582,8 +586,9 @@ def _layout_cards_on_sheets(
         for idx, (_title, card_img) in enumerate(page_covers):
             col = idx % cols
             row = idx // cols
-            x = margin_x + col * CARD_PX_W
-            y = margin_y + row * CARD_PX_H
+            # Paste card inside the cell, offset by the border
+            x = margin_x + col * CELL_PX_W + BORDER_PX
+            y = margin_y + row * CELL_PX_H + BORDER_PX
             sheet.paste(card_img, (x, y))
 
         sheets.append(sheet)
@@ -629,8 +634,8 @@ def generate_cover_sheets(
         if d.is_dir() and d.name not in _SKIP_DIRS
     )
 
-    cols = SHEET_PX_W // CARD_PX_W
-    rows = SHEET_PX_H // CARD_PX_H
+    cols = SHEET_PX_W // CELL_PX_W
+    rows = SHEET_PX_H // CELL_PX_H
 
     mode_label = {
         "crop": "centre-crop",

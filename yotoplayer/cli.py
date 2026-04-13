@@ -295,10 +295,9 @@ def _safe_dirname(name: str) -> str:
     help="Output PDF path (default: ~/YotoPlayer/covers.pdf)",
 )
 @click.option(
-    "--fit",
-    is_flag=True,
-    default=False,
-    help="Fit full cover with blurred background (no clipping).",
+    "--fit/--crop",
+    default=True,
+    help="Fit full cover with blurred background (default) or centre-crop.",
 )
 @click.option(
     "--ai-covers",
@@ -324,7 +323,7 @@ def print_covers(library, output, fit, ai_covers, outpaint):
     elif fit:
         mode = "fit"
     else:
-        mode = "crop"
+        mode = "crop"  # --crop flag
 
     generate_cover_sheets(library_dir, output_path, mode=mode)
 
