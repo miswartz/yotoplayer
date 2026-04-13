@@ -9,6 +9,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+_SETTINGS_DIR = Path.home() / ".yotoplayer"
+_SETUP_MARKER = _SETTINGS_DIR / ".setup_done"
+
+
+def is_setup_complete() -> bool:
+    """Check whether one-time setup has been run."""
+    return _SETUP_MARKER.exists()
+
+
+def mark_setup_complete() -> None:
+    """Write the marker file indicating setup has been run."""
+    _SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    _SETUP_MARKER.write_text("1", encoding="utf-8")
+
 
 def check_pipeline_ready(*, upload: bool = True, icons: bool = False) -> None:
     """Verify all dependencies are available.  Exits on first failure.
@@ -98,10 +112,16 @@ def check_pipeline_ready(*, upload: bool = True, icons: bool = False) -> None:
         print("Pre-flight check failed:\n", file=sys.stderr)
         for i, err in enumerate(errors, 1):
             print(f"  {i}. {err}\n", file=sys.stderr)
-        print(
-            f"{len(errors)} issue(s) found. Fix them before running the pipeline.",
-            file=sys.stderr,
-        )
+        if not is_setup_complete():
+            print(
+                "Tip: Run 'yotoplayer setup' to install everything interactively.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"{len(errors)} issue(s) found. Fix them before running the pipeline.",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
     print("Pre-flight check passed — all dependencies ready.")

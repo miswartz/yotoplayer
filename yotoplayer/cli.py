@@ -20,7 +20,7 @@ from .playlist import enforce_playlist_limits
 from .covers import generate_cover_sheets
 from .fetch_covers import fetch_all_covers
 from .update_covers import update_yoto_covers
-from .preflight import check_pipeline_ready
+from .preflight import check_pipeline_ready, is_setup_complete, mark_setup_complete
 
 
 @click.group()
@@ -42,6 +42,101 @@ def yoto_auth():
     """Set up Yoto account authentication (OAuth2 device code flow)."""
     device_code_auth()
     print("\nYoto authentication complete. You can now upload playlists.")
+
+
+@main.command()
+def setup():
+    """One-time setup: install dependencies, browsers, and authenticate."""
+    import shutil
+    import subprocess
+
+    settings_dir = Path.home() / ".yotoplayer"
+    settings_dir.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 60)
+    print("  YotoPlayer Setup")
+    print("=" * 60)
+
+    # -- 1. ffmpeg ---------------------------------------------------------
+    print("\n[1/4] Checking ffmpeg...")
+    if shutil.which("ffmpeg"):
+        print("  ffmpeg found.")
+    else:
+        print("  ffmpeg not found.")
+        if sys.platform == "win32":
+            ok = input("  Install ffmpeg via winget? [Y/n]: ").strip().lower()
+            if ok != "n":
+                subprocess.run(["winget", "install", "ffmpeg"], check=False)
+                if shutil.which("ffmpeg"):
+                    print("  ffmpeg installed.")
+                else:
+                    print("  ffmpeg installed but not in PATH yet.")
+                    print("  Restart your terminal after setup completes.")
+            else:
+                print("  Skipped. Install manually: winget install ffmpeg")
+        elif sys.platform == "darwin":
+            print("  Install with: brew install ffmpeg")
+        else:
+            print("  Install with: sudo apt install ffmpeg  (or your package manager)")
+
+    # -- 2. Playwright Chromium --------------------------------------------
+    print("\n[2/4] Installing Playwright Chromium browser...")
+    result = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        check=False,
+    )
+    if result.returncode == 0:
+        print("  Chromium browser ready.")
+    else:
+        print("  Warning: Playwright browser install failed.")
+        print("  Try manually: python -m playwright install chromium")
+
+    # -- 3. Libby auth -----------------------------------------------------
+    print("\n[3/4] Libby authentication...")
+    edge_token = settings_dir / "edge_identity.txt"
+    if edge_token.exists():
+        print("  Edge identity token found.")
+    else:
+        print("  Edge identity token needed for audiobook downloads.")
+        print("  To get it:")
+        print("    1. Open Edge → libbyapp.com → open any audiobook")
+        print("    2. DevTools (F12) → Application → Local Storage → libbyapp.com")
+        print('    3. Copy the "dewey:sentry.identity" value (starts with eyJ…)')
+        token = input("  Paste your token here (or press Enter to skip): ").strip()
+        if token:
+            edge_token.write_text(token, encoding="utf-8")
+            print("  Token saved.")
+        else:
+            print(f"  Skipped. Save it later to: {edge_token}")
+
+    chip_path = settings_dir / "chip.json"
+    if chip_path.exists():
+        print("  Libby account already linked.")
+    else:
+        ok = input("  Link your Libby account now? [Y/n]: ").strip().lower()
+        if ok != "n":
+            setup_auth()
+        else:
+            print("  Skipped. Run 'yotoplayer auth' later.")
+
+    # -- 4. Yoto auth ------------------------------------------------------
+    print("\n[4/4] Yoto authentication...")
+    if is_yoto_authenticated():
+        print("  Yoto account already linked.")
+    else:
+        ok = input("  Link your Yoto account now? [Y/n]: ").strip().lower()
+        if ok != "n":
+            device_code_auth()
+            print("  Yoto authentication complete.")
+        else:
+            print("  Skipped. Run 'yotoplayer yoto-auth' later.")
+
+    # -- Done --------------------------------------------------------------
+    mark_setup_complete()
+    print("\n" + "=" * 60)
+    print("  Setup complete!")
+    print("  Run 'yotoplayer get <query>' to download your first audiobook.")
+    print("=" * 60)
 
 
 @main.command(name="get")
