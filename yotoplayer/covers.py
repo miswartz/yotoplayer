@@ -131,11 +131,18 @@ def _crop_cover_to_card(img: Image.Image) -> Image.Image:
 def _fit_cover_to_card(img: Image.Image) -> Image.Image:
     """Fit the full cover inside card dimensions with a blurred background.
 
-    No clipping — the entire cover is visible. Remaining space is filled
-    with a mirror-padded, blurred, and darkened version of the cover.
+    If the aspect ratio is close to the card ratio (within 10%), simply
+    stretch to fill.  Otherwise the entire cover is visible and remaining
+    space is filled with a mirror-padded, blurred, and darkened version.
     """
     target_w, target_h = CARD_PX_W, CARD_PX_H
     src_w, src_h = img.size
+
+    # If aspect ratio is close enough, just stretch to fill
+    src_ratio = src_w / src_h
+    card_ratio = target_w / target_h
+    if abs(src_ratio - card_ratio) / card_ratio < 0.10:
+        return img.resize((target_w, target_h), Image.LANCZOS).convert("RGB")
 
     # Foreground: scale to fit entirely inside card
     fg_scale = min(target_w / src_w, target_h / src_h)
@@ -615,14 +622,12 @@ def generate_cover_sheets(
         sys.exit(1)
 
     # Collect raw cover images, book names, and book directories
+    _SKIP_DIRS = {".work", "_cards"}
     raw_covers: List[Tuple[str, Image.Image, Path]] = []
     book_dirs = sorted(
-        d for d in library_dir.iterdir() if d.is_dir() and d.name != ".work"
+        d for d in library_dir.iterdir()
+        if d.is_dir() and d.name not in _SKIP_DIRS
     )
-
-    if not book_dirs:
-        print("No books found.", file=sys.stderr)
-        sys.exit(1)
 
     cols = SHEET_PX_W // CARD_PX_W
     rows = SHEET_PX_H // CARD_PX_H
@@ -633,21 +638,48 @@ def generate_cover_sheets(
         "ai": "AI re-creation",
         "outpaint": "AI outpaint",
     }
-    print(f"Scanning {len(book_dirs)} book(s) in {library_dir}...")
+    print(f"Scanning {library_dir}...")
     print(f"Card size: {CARD_W_MM} x {CARD_H_MM}mm (+{BLEED_MM}mm bleed)")
     print(f"Sheet layout: {cols} across x {rows} down = {cols * rows} per page")
     print(f"Mode: {mode_label.get(mode, mode)}")
     print()
 
+    # Build a lookup of official card images from _cards/ directory
+    cards_dir = library_dir / "_cards"
+    _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+    cards_lookup: dict[str, Path] = {}
+    if cards_dir.is_dir():
+        for f in cards_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in _IMAGE_EXTS:
+                cards_lookup[f.stem] = f
+
     for book_dir in book_dirs:
+        # Detect multi-part books (Pt. 1, Pt. 2, … subdirectories)
+        part_dirs = sorted(
+            d for d in book_dir.iterdir()
+            if d.is_dir() and d.name.startswith("Pt. ")
+        )
+        is_multi = len(part_dirs) >= 2
+
+        # Check if an official card cover exists in _cards/
+        if book_dir.name in cards_lookup:
+            try:
+                card_img = Image.open(cards_lookup[book_dir.name])
+                if is_multi:
+                    for pd in part_dirs:
+                        label = f"{book_dir.name} ({pd.name})"
+                        raw_covers.append((label, card_img, cards_dir, pd.name))
+                        print(f"  + {label} (official card)")
+                else:
+                    raw_covers.append((book_dir.name, card_img, cards_dir, None))
+                    print(f"  + {book_dir.name} (official card)")
+                continue
+            except Exception:
+                pass  # fall through to MP3 extraction
+
         img = _find_cover_for_book(book_dir)
         if img:
-            # Detect multi-part books (Pt. 1, Pt. 2, … subdirectories)
-            part_dirs = sorted(
-                d for d in book_dir.iterdir()
-                if d.is_dir() and d.name.startswith("Pt. ")
-            )
-            if len(part_dirs) >= 2:
+            if is_multi:
                 for pd in part_dirs:
                     label = f"{book_dir.name} ({pd.name})"
                     raw_covers.append((label, img, book_dir, pd.name))
@@ -657,6 +689,24 @@ def generate_cover_sheets(
                 print(f"  + {book_dir.name}")
         else:
             print(f"  - {book_dir.name} (no cover found)")
+
+    # Standalone card images from _cards/ (ones not already matched to a book dir)
+    book_dir_names = {d.name for d in book_dirs}
+    if cards_dir.is_dir():
+        card_images = sorted(
+            f for f in cards_dir.iterdir()
+            if f.is_file() and f.suffix.lower() in _IMAGE_EXTS
+        )
+        for card_file in card_images:
+            if card_file.stem in book_dir_names:
+                continue  # already used as official cover above
+            try:
+                img = Image.open(card_file)
+                title = card_file.stem
+                raw_covers.append((title, img, cards_dir, None))
+                print(f"  + {title} (standalone card)")
+            except Exception:
+                print(f"  - {card_file.name} (could not load image)")
 
     if not raw_covers:
         print("\nNo covers found.", file=sys.stderr)
@@ -719,7 +769,12 @@ def generate_cover_sheets(
     # Process covers
     covers: List[Tuple[str, Image.Image]] = []
     for title, img, book_dir, part_name in raw_covers:
-        if mode == "ai":
+        # Images sourced from _cards/ are already official card art —
+        # just crop/resize to exact card dimensions, skip fit/AI operations.
+        is_card_image = (book_dir == cards_dir)
+        if is_card_image:
+            card = _crop_cover_to_card(img)
+        elif mode == "ai":
             cached = _get_cached_card(book_dir, CACHE_FILENAME_AI_COVER)
             if cached:
                 print(f"  Using cached AI cover for {title}")

@@ -18,6 +18,8 @@ from .yoto import device_code_auth, is_yoto_authenticated, upload_to_yoto
 from .icons import generate_chapter_icons
 from .playlist import enforce_playlist_limits
 from .covers import generate_cover_sheets
+from .fetch_covers import fetch_all_covers
+from .update_covers import update_yoto_covers
 
 
 @click.group()
@@ -252,6 +254,12 @@ def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons)
 
         shutil.rmtree(work_dir, ignore_errors=True)
 
+    # 16. Regenerate cover sheets
+    library_dir = output_dir.parent
+    covers_pdf = library_dir / "covers.pdf"
+    print("\nRegenerating cover sheets...")
+    generate_cover_sheets(library_dir, covers_pdf, mode="fit")
+
     # Summary
     total_chapters = sum(len(p["final_files"]) for p in playlists)
     if multi:
@@ -319,6 +327,40 @@ def print_covers(library, output, fit, ai_covers, outpaint):
         mode = "crop"
 
     generate_cover_sheets(library_dir, output_path, mode=mode)
+
+
+@main.command(name="fetch-covers")
+@click.option(
+    "--library",
+    "-l",
+    type=click.Path(),
+    default=None,
+    help="Library directory (default: ~/YotoPlayer)",
+)
+def fetch_covers(library):
+    """Fetch official Yoto card art from us.yotoplay.com for local books."""
+    library_dir = Path(library) if library else Path.home() / "YotoPlayer"
+    if not library_dir.exists():
+        print(f"Error: Library directory not found: {library_dir}", file=sys.stderr)
+        sys.exit(1)
+    fetch_all_covers(library_dir)
+
+
+@main.command(name="update-covers")
+@click.option(
+    "--library",
+    "-l",
+    type=click.Path(),
+    default=None,
+    help="Library directory (default: ~/YotoPlayer)",
+)
+def update_covers(library):
+    """Update cover art on existing Yoto playlists from local images."""
+    library_dir = Path(library) if library else Path.home() / "YotoPlayer"
+    if not library_dir.exists():
+        print(f"Error: Library directory not found: {library_dir}", file=sys.stderr)
+        sys.exit(1)
+    update_yoto_covers(library_dir)
 
 
 if __name__ == "__main__":
