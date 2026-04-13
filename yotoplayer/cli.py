@@ -20,6 +20,7 @@ from .playlist import enforce_playlist_limits
 from .covers import generate_cover_sheets
 from .fetch_covers import fetch_all_covers
 from .update_covers import update_yoto_covers
+from .preflight import check_pipeline_ready
 
 
 @click.group()
@@ -81,6 +82,9 @@ def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons)
 
     QUERY is the search term (e.g., "dinosaurs before dark").
     """
+    # 0. Pre-flight check
+    check_pipeline_ready(upload=not no_upload, icons=icons)
+
     # 1. Authenticate
     client = get_client()
     library_keys = get_library_keys(client)
