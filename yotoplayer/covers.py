@@ -6,11 +6,12 @@ crops/resizes to NFC card dimensions with bleed, and tiles them onto
 """
 
 import base64
+import json
 import math
 import sys
 from io import BytesIO
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 from mutagen.id3 import ID3, ID3NoHeaderError
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
@@ -51,6 +52,40 @@ CELL_PX_W = CARD_PX_W + 2 * BORDER_PX  # card + white border
 CELL_PX_H = CARD_PX_H + 2 * BORDER_PX
 SHEET_PX_W = _mm_to_px(SHEET_W_MM)
 SHEET_PX_H = _mm_to_px(SHEET_H_MM)
+
+
+# ---------------------------------------------------------------------------
+# Printed tracking
+# ---------------------------------------------------------------------------
+
+PRINTED_FILENAME = "printed.json"
+
+
+def _load_printed(library_dir: Path) -> Set[str]:
+    """Load the set of cover titles that have been marked as printed."""
+    path = library_dir / PRINTED_FILENAME
+    if not path.exists():
+        return set()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return set(data) if isinstance(data, list) else set()
+    except (json.JSONDecodeError, OSError):
+        return set()
+
+
+def _save_printed(library_dir: Path, printed: Set[str]) -> None:
+    """Save the set of printed cover titles."""
+    path = library_dir / PRINTED_FILENAME
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(sorted(printed), f, indent=2)
+
+
+def mark_covers_printed(library_dir: Path, titles: List[str]) -> None:
+    """Mark the given cover titles as printed."""
+    printed = _load_printed(library_dir)
+    printed.update(titles)
+    _save_printed(library_dir, printed)
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +641,7 @@ def generate_cover_sheets(
     library_dir: Path,
     output_path: Path,
     mode: str = "crop",
+    unprinted_only: bool = False,
 ) -> Path:
     """Scan local books, generate printable cover sheets.
 
@@ -619,6 +655,9 @@ def generate_cover_sheets(
         "crop" (default centre-crop), "fit" (blur background, no clipping),
         "ai" (AI-generated covers with title overlay), or
         "outpaint" (AI extends original cover to fill card).
+    unprinted_only : bool
+        If True, only include covers not yet marked as printed,
+        and mark them as printed after generating the PDF.
 
     Returns
     -------
@@ -721,6 +760,17 @@ def generate_cover_sheets(
                 print(f"  + {title} (standalone card)")
             except Exception:
                 print(f"  - {card_file.name} (could not load image)")
+
+    # Filter to unprinted covers only (when requested)
+    if unprinted_only:
+        already_printed = _load_printed(library_dir)
+        before = len(raw_covers)
+        raw_covers = [
+            entry for entry in raw_covers if entry[0] not in already_printed
+        ]
+        skipped = before - len(raw_covers)
+        if skipped:
+            print(f"\n  Skipped {skipped} already-printed cover(s).")
 
     if not raw_covers:
         print("\nNo covers found.", file=sys.stderr)
@@ -847,4 +897,11 @@ def generate_cover_sheets(
 
     print(f"\nGenerated {num_pages} page(s) with {len(covers)} cover(s)")
     print(f"Saved to: {output_path}")
+
+    # Mark newly generated covers as printed
+    if unprinted_only:
+        new_titles = [title for title, _img in covers]
+        mark_covers_printed(library_dir, new_titles)
+        print(f"Marked {len(new_titles)} cover(s) as printed.")
+
     return output_path

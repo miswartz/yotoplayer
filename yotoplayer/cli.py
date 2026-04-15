@@ -584,7 +584,13 @@ def _safe_dirname(name: str) -> str:
     default=False,
     help="AI extends original cover art to fill card (Stability AI, ~$0.04/cover).",
 )
-def print_covers(library, output, fit, ai_covers, outpaint):
+@click.option(
+    "--unprinted",
+    is_flag=True,
+    default=False,
+    help="Only generate covers not yet marked as printed.",
+)
+def print_covers(library, output, fit, ai_covers, outpaint, unprinted):
     """Generate printable NFC card cover sheets from local books."""
     library_dir = Path(library) if library else Path.home() / "YotoPlayer"
     output_path = Path(output) if output else library_dir / "covers.pdf"
@@ -598,7 +604,7 @@ def print_covers(library, output, fit, ai_covers, outpaint):
     else:
         mode = "crop"  # --crop flag
 
-    generate_cover_sheets(library_dir, output_path, mode=mode)
+    generate_cover_sheets(library_dir, output_path, mode=mode, unprinted_only=unprinted)
 
 
 @main.command(name="fetch-covers")
