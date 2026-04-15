@@ -15,6 +15,7 @@ from PIL import Image
 
 from .covers import _stamp_part_label
 from .yoto import get_yoto_session, upload_cover, API_URL
+from .collection import is_collection_dir
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -56,6 +57,21 @@ def _find_local_cover(book_name: str, library_dir: Path) -> Optional[Path]:
     book_dir = library_dir / book_name
     if not book_dir.is_dir() and base_name != book_name:
         book_dir = library_dir / base_name
+
+    # Search inside collection directories for the book
+    if not book_dir.is_dir():
+        _skip = {".work", "_cards"}
+        for top_dir in sorted(library_dir.iterdir()):
+            if top_dir.is_dir() and top_dir.name not in _skip and is_collection_dir(top_dir):
+                candidate = top_dir / book_name
+                if candidate.is_dir():
+                    book_dir = candidate
+                    break
+                if base_name != book_name:
+                    candidate = top_dir / base_name
+                    if candidate.is_dir():
+                        book_dir = candidate
+                        break
 
     if book_dir.is_dir():
         # .work/cover.jpg

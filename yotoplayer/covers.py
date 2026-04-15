@@ -15,6 +15,8 @@ from typing import List, Optional, Tuple
 from mutagen.id3 import ID3, ID3NoHeaderError
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
+from .collection import is_collection_dir, get_collection_book_dirs
+
 # ---------------------------------------------------------------------------
 # Dimensions (millimetres)
 # ---------------------------------------------------------------------------
@@ -629,10 +631,17 @@ def generate_cover_sheets(
     # Collect raw cover images, book names, and book directories
     _SKIP_DIRS = {".work", "_cards"}
     raw_covers: List[Tuple[str, Image.Image, Path]] = []
-    book_dirs = sorted(
+    top_dirs = sorted(
         d for d in library_dir.iterdir()
         if d.is_dir() and d.name not in _SKIP_DIRS
     )
+    # Expand collection directories into individual book subdirectories
+    book_dirs = []
+    for d in top_dirs:
+        if is_collection_dir(d):
+            book_dirs.extend(get_collection_book_dirs(d))
+        else:
+            book_dirs.append(d)
 
     cols = SHEET_PX_W // CELL_PX_W
     rows = SHEET_PX_H // CELL_PX_H

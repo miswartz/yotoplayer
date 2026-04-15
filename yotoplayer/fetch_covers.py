@@ -13,6 +13,8 @@ from urllib.parse import quote, unquote
 
 import requests
 
+from .collection import is_collection_dir, get_collection_book_dirs
+
 YOTO_BASE = "https://us.yotoplay.com"
 YOTO_CDN_PATTERN = re.compile(
     r"card-content\.yotoplay\.com/yoto/pub/([A-Za-z0-9_\-]+)"
@@ -208,10 +210,17 @@ def fetch_all_covers(library_dir: Path) -> int:
     cards_dir = library_dir / "_cards"
     cards_dir.mkdir(parents=True, exist_ok=True)
 
-    book_dirs = sorted(
+    top_dirs = sorted(
         d for d in library_dir.iterdir()
         if d.is_dir() and d.name not in _SKIP_DIRS
     )
+    # Expand collection directories into individual book subdirectories
+    book_dirs = []
+    for d in top_dirs:
+        if is_collection_dir(d):
+            book_dirs.extend(get_collection_book_dirs(d))
+        else:
+            book_dirs.append(d)
 
     if not book_dirs:
         print("No book directories found.", file=sys.stderr)

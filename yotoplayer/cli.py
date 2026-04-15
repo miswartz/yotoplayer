@@ -18,9 +18,10 @@ from .yoto import device_code_auth, is_yoto_authenticated, upload_to_yoto
 from .icons import generate_chapter_icons
 from .playlist import enforce_playlist_limits
 from .covers import generate_cover_sheets
-from .fetch_covers import fetch_all_covers
+from .fetch_covers import fetch_all_covers, fetch_cover_for_book
 from .update_covers import update_yoto_covers
 from .preflight import check_pipeline_ready, is_setup_complete, mark_setup_complete
+from .collection import split_collection, find_book_cover
 
 
 @click.group()
@@ -172,7 +173,13 @@ def setup():
     default=False,
     help="Generate AI pixel art chapter icons (requires OPENAI_API_KEY and RETRO_DIFFUSION_API_KEY).",
 )
-def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons):
+@click.option(
+    "--collection",
+    is_flag=True,
+    default=False,
+    help="Treat audiobook as a collection of smaller books, splitting by chapter titles.",
+)
+def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons, collection):
     """Search for an audiobook and download + process it.
 
     QUERY is the search term (e.g., "dinosaurs before dark").
@@ -253,6 +260,15 @@ def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons)
     # 9. Split into per-chapter MP3s
     print()
     chapter_files = split_chapters(merged_file, chapter_list, output_dir)
+
+    # ---- Collection mode: split into individual books ----
+    if collection:
+        _process_collection(
+            chapter_files, chapter_list, book_meta, output_dir, work_dir,
+            authors, narrators, cover_path, normalize, no_upload, icons,
+            keep_intermediate,
+        )
+        return
 
     # 10. Enforce Yoto playlist limits (100 tracks, 100 MB/track, 500 MB total)
     print("\nChecking Yoto playlist limits...")
@@ -368,6 +384,164 @@ def get_audiobook(query, output, keep_intermediate, normalize, no_upload, icons)
         )
     else:
         print(f"\nDone! {total_chapters} chapters saved to:\n  {output_dir}")
+
+
+def _process_collection(
+    chapter_files, chapter_list, book_meta, output_dir, work_dir,
+    authors, narrators, cover_path, normalize, no_upload, icons,
+    keep_intermediate,
+):
+    """Process a collection audiobook: split into individual books and handle each."""
+    import shutil
+
+    collection_title = book_meta["title"]
+    book_description = book_meta.get("description", "")
+
+    # Split into individual books
+    books = split_collection(chapter_list, chapter_files)
+
+    # The collection root is output_dir (named after the collection title).
+    # Each book gets its own sub-folder under the collection root.
+    # The library root is one level up from the collection folder.
+    library_dir = output_dir.parent
+    cards_dir = library_dir / "_cards"
+
+    # Fetch covers from Yoto store for each book in the collection
+    cards_dir.mkdir(parents=True, exist_ok=True)
+    print("\nSearching for individual book covers on Yoto store...")
+    for book in books:
+        fetch_cover_for_book(book["title"], cards_dir)
+
+    total_chapters = 0
+
+    for bi, book in enumerate(books):
+        bk_title = book["title"]
+        bk_chapters = book["chapters"]
+        bk_files = book["files"]
+
+        print(f"\n{'=' * 60}")
+        print(f"  Book {bi + 1}/{len(books)}: {bk_title}")
+        print(f"{'=' * 60}")
+
+        # Create sub-folder for this book under the collection folder
+        book_dir = output_dir / _safe_dirname(bk_title)
+        book_dir.mkdir(parents=True, exist_ok=True)
+
+        # Move chapter files into book directory
+        moved_files = []
+        for f in bk_files:
+            dest = book_dir / f.name
+            f.rename(dest)
+            moved_files.append(dest)
+        bk_files = moved_files
+
+        # Find cover: prefer _cards/ match, fall back to collection cover
+        bk_cover = find_book_cover(bk_title, cards_dir, cover_path)
+
+        # Enforce Yoto playlist limits per-book
+        print("\nChecking Yoto playlist limits...")
+        playlists = enforce_playlist_limits(
+            bk_files, bk_chapters, bk_title, book_dir,
+        )
+        multi = len(playlists) > 1
+
+        for pi, playlist in enumerate(playlists):
+            pl_title = playlist["title"]
+            pl_files = playlist["files"]
+            pl_chapters = playlist["chapters"]
+
+            if multi:
+                pl_dir = book_dir / _safe_dirname(f"Pt. {pi + 1}")
+                pl_dir.mkdir(parents=True, exist_ok=True)
+                moved = []
+                for f in pl_files:
+                    dest = pl_dir / f.name
+                    f.rename(dest)
+                    moved.append(dest)
+                pl_files = moved
+                playlist["files"] = pl_files
+            else:
+                pl_dir = book_dir
+
+            # Write ID3 tags
+            print(f"\nWriting ID3 tags{f' ({pl_title})' if multi else ''}...")
+            write_id3_tags(pl_files, pl_chapters, pl_title, authors, bk_cover)
+
+            # Normalize volume (opt-in)
+            if normalize:
+                print()
+                normalize_volume(pl_dir)
+
+            # Rename files
+            print(f"\nRenaming files{f' ({pl_title})' if multi else ''}...")
+            final_files = rename_chapters(pl_files, pl_chapters, pl_title)
+            for f in final_files:
+                print(f"  {f.name}")
+            playlist["final_files"] = final_files
+
+        if not normalize:
+            print("\nSkipping volume normalization (use --normalize to enable).")
+
+        # Upload each book as its own Yoto playlist
+        if not no_upload:
+            for playlist in playlists:
+                pl_title = playlist["title"]
+                pl_chapters = playlist["chapters"]
+                final_files = playlist["final_files"]
+                chapter_titles = [
+                    ch.get("title", f"Chapter {i+1}")
+                    for i, ch in enumerate(pl_chapters)
+                ]
+
+                icon_paths = None
+                has_meaningful = any(
+                    _is_meaningful_title(t, bk_title) for t in chapter_titles
+                )
+                if icons and not has_meaningful:
+                    print("Skipping icon generation (no meaningful chapter names).")
+                elif icons:
+                    if len(chapter_titles) > 20:
+                        ok = input(
+                            f"\nGenerate icons for {len(chapter_titles)} chapters of "
+                            f"{pl_title}? (~${len(chapter_titles) * 0.023:.2f}) [y/N]: "
+                        ).strip().lower()
+                        if ok != "y":
+                            print("Skipping icon generation.")
+                            icon_paths = None
+                        else:
+                            icon_paths = generate_chapter_icons(
+                                chapter_titles, pl_title, book_description,
+                                final_files[0].parent,
+                            )
+                    else:
+                        icon_paths = generate_chapter_icons(
+                            chapter_titles, pl_title, book_description,
+                            final_files[0].parent,
+                        )
+
+                upload_to_yoto(
+                    final_files, chapter_titles, pl_title, authors,
+                    narrators=narrators, cover_path=bk_cover, icon_paths=icon_paths,
+                )
+        else:
+            print("\nSkipping Yoto upload (--no-upload).")
+
+        total_chapters += sum(len(p["final_files"]) for p in playlists)
+
+    # Clean up
+    if not keep_intermediate:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+    # Regenerate cover sheets
+    covers_pdf = library_dir / "covers.pdf"
+    print("\nRegenerating cover sheets...")
+    generate_cover_sheets(library_dir, covers_pdf, mode="fit")
+
+    # Summary
+    print(
+        f"\nDone! Collection \"{collection_title}\" — {len(books)} books, "
+        f"{total_chapters} total chapters saved to:\n  {output_dir}"
+    )
 
 
 def _safe_dirname(name: str) -> str:

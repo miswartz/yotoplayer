@@ -75,8 +75,8 @@ def check_pipeline_ready(*, upload: bool = True, icons: bool = False) -> None:
             f"  4. Save it to {edge_token}"
         )
 
-    # Libby auth (chip)
-    chip_path = settings_dir / "chip.json"
+    # Libby auth (chip) — odmpy stores chip inside libby.json
+    chip_path = settings_dir / "libby.json"
     if not chip_path.exists():
         errors.append(
             "Libby not authenticated — no chip found.\n"
